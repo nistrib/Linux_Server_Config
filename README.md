@@ -108,7 +108,7 @@ Built with open-source tools:
 
 ## 📞 Support
 
-- Check INSTALLATION.txt troubleshooting section
+- Check Linux Server Full Config.txt troubleshooting section
 - Review security recommendations
 - Open GitHub issue for bugs/questions
 
