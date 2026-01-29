@@ -36,7 +36,7 @@ This guide sets up a secure Ubuntu server with:
 
 ## 📖 Documentation
 
-- **[INSTALLATION.txt](INSTALLATION.txt)** - Complete step-by-step guide
+- Linux_Server_Configuration.txt - Full server setup documentation (Complete step-by-step guide)
 - All commands are copy-paste ready
 - Includes troubleshooting section
 - Security hardening recommendations
