@@ -28,7 +28,7 @@ This guide sets up a secure Ubuntu server with:
 
 ```bash
 # 1. Fresh Ubuntu 24.04 LTS installation
-# 2. Follow INSTALLATION.txt step-by-step
+# 2. Follow **Linux Server Full Config.txt** step-by-step
 # 3. Access your services via Tailscale VPN
 ```
 
