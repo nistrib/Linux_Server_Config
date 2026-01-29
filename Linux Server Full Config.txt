@@ -1027,7 +1027,7 @@ Found an issue or have suggestions? Please open an issue or submit a pull reques
 
 ## Disclaimer
 
-This guide is provided as-is without warranty. Always test in a non-production environment first. The authors are not responsible for any damage or data loss resulting from following this guide.
+This guide is provided as-is without warranty. Always test in a non-production environment first. The author is not responsible for any damage or data loss resulting from following this guide.
 
 ## License
 
