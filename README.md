@@ -1042,78 +1042,96 @@ lsblk -d -o NAME,MODEL,SIZE,TYPE
 Create the SMART monitoring script:
 
 ```bash
-sudo tee /usr/local/bin/smart > /dev/null <<'EOF'
+sudo tee /usr/local/bin/smart << 'EOF'
 #!/usr/bin/env bash
 set -u
-
 mapfile -t DISKS < <(lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}')
-
 if [ ${#DISKS[@]} -eq 0 ]; then
   echo "No disks found."
   exit 1
 fi
-
 for DISK in "${DISKS[@]}"; do
-  MODEL="$(lsblk -dn -o MODEL "$DISK" 2>/dev/null | sed 's/^ *//;s/ *$//')"
+  SMART_OUT="$(sudo smartctl -a "$DISK" 2>/dev/null)"
+
+  MODEL="$(echo "$SMART_OUT" | awk -F: '/^Model Number:/ {gsub(/^ +| +$/,"",$2); print $2; exit}')"
+  [ -z "$MODEL" ] && MODEL="$(echo "$SMART_OUT" | awk -F: '/^Device Model:/ {gsub(/^ +| +$/,"",$2); print $2; exit}')"
+  [ -z "$MODEL" ] && MODEL="$(lsblk -dn -o MODEL "$DISK" 2>/dev/null | sed 's/^ *//;s/ *$//')"
   [ -z "$MODEL" ] && MODEL="Unknown"
+
+  SIZE="$(lsblk -dn -o SIZE "$DISK" 2>/dev/null | sed 's/^ *//;s/ *$//')"
+  [ -z "$SIZE" ] && SIZE="N/A"
 
   TEMP=""
   HEALTH="Unknown"
   STATUS="yellow"
 
   if [[ "$DISK" == /dev/nvme* ]]; then
-    TEMP="$(sudo nvme smart-log "$DISK" 2>/dev/null | awk -F: '/^temperature/ {gsub(/^ +| +$/,"",$2); print $2; exit}')"
-    [ -z "$TEMP" ] && TEMP="$(sudo smartctl -a "$DISK" 2>/dev/null | awk -F: '/Temperature:/ {gsub(/^ +| +$/,"",$2); print $2; exit}')"
-
-    if sudo smartctl -H "$DISK" 2>/dev/null | grep -qiE 'PASSED|OK'; then
-      HEALTH="Healthy"
-      STATUS="green"
+    TEMP="$(sudo nvme smart-log "$DISK" 2>/dev/null | awk -F: '/^temperature/ {gsub(/^ +| +$/,"",$2); match($2,/[0-9]+/); print substr($2,RSTART,RLENGTH); exit}')"
+    [ -z "$TEMP" ] && TEMP="$(echo "$SMART_OUT" | awk -F: '/^Temperature:/ {gsub(/^ +| +$/,"",$2); match($2,/[0-9]+/); print substr($2,RSTART,RLENGTH); exit}')"
+    if echo "$SMART_OUT" | grep -qiE 'PASSED|OK'; then
+      HEALTH="Healthy"; STATUS="green"
     else
-      HEALTH="Warning"
-      STATUS="yellow"
+      HEALTH="Warning"; STATUS="yellow"
     fi
   else
-    TEMP="$(sudo smartctl -A "$DISK" 2>/dev/null | awk '
-      /Temperature_Celsius/ {print $(NF-1) " C"; found=1; exit}
-      /Airflow_Temperature_Cel/ {print $(NF-1) " C"; found=1; exit}
+    TEMP="$(echo "$SMART_OUT" | awk -F: '/^Temperature:/ {gsub(/^ +| +$/,"",$2); match($2,/[0-9]+/); print substr($2,RSTART,RLENGTH); exit}')"
+    [ -z "$TEMP" ] && TEMP="$(echo "$SMART_OUT" | awk '
+      /Temperature_Celsius/ {print $(NF-1); found=1; exit}
+      /Airflow_Temperature_Cel/ {print $(NF-1); found=1; exit}
       END {if (!found) print ""}
     ')"
-
-    if sudo smartctl -H "$DISK" 2>/dev/null | grep -qi 'PASSED'; then
-      HEALTH="Healthy"
-      STATUS="green"
+    if echo "$SMART_OUT" | grep -qiE 'PASSED|OK'; then
+      HEALTH="Healthy"; STATUS="green"
     else
-      HEALTH="Warning"
-      STATUS="yellow"
+      HEALTH="Warning"; STATUS="yellow"
     fi
   fi
 
   TEMP_NUM="$(printf '%s' "$TEMP" | grep -oE '[0-9]+' | head -1)"
-
   if [ -n "$TEMP_NUM" ]; then
+    TEMP="${TEMP_NUM} °C"
     if [ "$TEMP_NUM" -ge 70 ]; then
-      STATUS="red"
-      HEALTH="Hot"
+      STATUS="red"; HEALTH="Hot"
     elif [ "$TEMP_NUM" -ge 60 ] && [ "$STATUS" = "green" ]; then
       STATUS="yellow"
     fi
   fi
+  [ -z "$TEMP_NUM" ] && TEMP="N/A"
 
-  [ -z "$TEMP" ] && TEMP="N/A"
+  POWER_HOURS="$(echo "$SMART_OUT" | awk -F: '/^Power On Hours:/ {gsub(/^ +| +$|,/,"",$2); print $2; exit}')"
+  [ -z "$POWER_HOURS" ] && POWER_HOURS="N/A"
+
+  POWER_CYCLES="$(echo "$SMART_OUT" | awk -F: '/^Power Cycles:/ {gsub(/^ +| +$|,/,"",$2); print $2; exit}')"
+  [ -z "$POWER_CYCLES" ] && POWER_CYCLES="N/A"
+
+  PCT_USED="$(echo "$SMART_OUT" | awk -F: '/^Percentage Used:/ {gsub(/^ +| +$/,"",$2); print $2; exit}')"
+  [ -z "$PCT_USED" ] && PCT_USED="N/A"
+
+  SPARE="$(echo "$SMART_OUT" | awk -F: '/^Available Spare:/ {gsub(/^ +| +$/,"",$2); print $2; exit}')"
+  [ -z "$SPARE" ] && SPARE="N/A"
+
+  UNSAFE="$(echo "$SMART_OUT" | awk -F: '/^Unsafe Shutdowns:/ {gsub(/^ +| +$|,/,"",$2); print $2; exit}')"
+  [ -z "$UNSAFE" ] && UNSAFE="N/A"
 
   case "$STATUS" in
-    green) DOT="[green]" ;;
+    green)  DOT="[green]"  ;;
     yellow) DOT="[yellow]" ;;
-    red) DOT="[red]" ;;
-    *) DOT="[?]" ;;
+    red)    DOT="[red]"    ;;
+    *)      DOT="[?]"      ;;
   esac
 
-  echo "$DOT  $DISK  $MODEL"
-  echo "  Temp:   $TEMP"
-  echo "  Health: $HEALTH"
+  echo "$DOT  $DISK  $MODEL  ($SIZE)"
+  echo "  Temp:             $TEMP"
+  echo "  Health:           $HEALTH"
+  echo "  Power On Hours:   $POWER_HOURS hrs"
+  echo "  Power Cycles:     $POWER_CYCLES"
+  echo "  Wear Level:       $PCT_USED"
+  echo "  Available Spare:  $SPARE"
+  echo "  Unsafe Shutdowns: $UNSAFE"
   echo
 done
 EOF
+sudo chmod +x /usr/local/bin/smart
 ```
 
 Make it executable:
